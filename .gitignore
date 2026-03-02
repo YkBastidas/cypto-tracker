@@ -1,4 +1,4 @@
-# Environments
+.localmeta# Environments
 venv/
 env/
 
@@ -8,3 +8,7 @@ __pycache__/
 
 # Streamlit specific
 .streamlit/
+
+# Loacl DB and documents
+/local-info
+portfolio.csv

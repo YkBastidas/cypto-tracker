@@ -5,6 +5,9 @@ import json
 from decimal import Decimal
 import os
 import time
+from dotenv import load_dotenv
+
+load_dotenv()
 
 FILE_PATH = 'portfolio.csv'
 ASSET_OPTIONS = ["BTC", "ETH", "SOL", "WBETH", "PAXG", "BNSOL", "BNB", "0G", "BEAM"]
@@ -30,10 +33,11 @@ def _format_token_str(value: float) -> str:
             s = s + '0'
     return s
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=3600)
 def get_live_price(coin_id="bitcoin"):
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
+        api_key = os.getenv('API_KEY')
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd&x_cg_demo_api_key={api_key}"
         response = requests.get(url).json()
         return response[coin_id]['usd']
     except Exception:
@@ -79,6 +83,9 @@ def secure_val(val, is_currency=True, token_symbol=""):
         return f"${val:,.2f}"
     return f"{val:.4f} {token_symbol}".strip()
 
+if 'input_key' not in st.session_state:
+    st.session_state['input_key'] = 0
+
 with st.sidebar:
     st.header("➕ New Transaction")
 
@@ -90,16 +97,16 @@ with st.sidebar:
     if tx_type in ["Deposit Fiat", "Withdraw Fiat"]:
         asset = "USD"
         tokens = 0.0
-        usd_value = st.number_input("Amount (USD)", min_value=0.0, format="%.2f")
+        usd_value = st.number_input("Amount (USD)", min_value=0.0, format="%.2f", key=f"usd_{st.session_state['input_key']}")
     else:
         asset = st.selectbox("Asset Ticker", options=ASSET_OPTIONS)
-        tokens = st.number_input("Quantity of Tokens", min_value=0.0, format="%.9f", step=0.000000001)
+        tokens = st.number_input("Quantity of Tokens", min_value=0.0, format="%.9f", step=0.000000001, key=f"tokens_{st.session_state['input_key']}")
 
         if tx_type in ["Earn (Staking)", "Gas (Fee)"]:
             usd_value = 0.0
             st.info(f"Cost basis is automatically $0 for {tx_type}.")
         else:
-            usd_value = st.number_input("Total USD Value of Trade", min_value=0.0, format="%.2f")
+            usd_value = st.number_input("Total USD Value of Trade", min_value=0.0, format="%.2f", key=f"usd_{st.session_state['input_key']}")
 
     if st.button("Save Transaction"):
         tokens_str = _format_token_str(tokens) if isinstance(tokens, (int, float)) else str(tokens)
@@ -114,8 +121,7 @@ with st.sidebar:
         df = load_data()
         df = pd.concat([df, new_tx], ignore_index=True)
         save_data(df)
-        st.session_state['should_reset'] = True
-        st.empty()
+        st.session_state['input_key'] += 1
         st.success("Transaction saved successfully!")
         time.sleep(0.5)
         st.rerun()
@@ -198,7 +204,7 @@ if not df.empty:
     if is_private:
         st.write(f"**Apartment Goal Progress: *** / ${goal_target:,.0f}**")
     else:
-        st.write(f"**Apartment Goal Progress: \${current_portfolio:,.2f} / ${goal_target:,.2f}**")
+        st.write(f"**Apartment Goal Progress: \\${current_portfolio:,.2f} / ${goal_target:,.2f}**")
         st.progress(progress_fraction)
 
     st.divider()

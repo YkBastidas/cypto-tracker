@@ -33,7 +33,7 @@ def _format_token_str(value: float) -> str:
             s = s + '0'
     return s
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=300)
 def get_live_price(coin_id="bitcoin"):
     try:
         api_key = os.getenv('API_KEY')
@@ -138,46 +138,55 @@ if not df.empty:
     fiat_balance = total_deposits - total_withdrawals - crypto_bought + crypto_sold
 
     st.subheader("Investments & DCA")
-    crypto_assets = df[(df['Asset'] != 'USD')]['Asset'].unique()
+    crypto_assets = list(df[(df['Asset'] != 'USD')]['Asset'].unique())
     total_crypto_value = 0.0
-    cols = st.columns(len(crypto_assets)) if len(crypto_assets) > 0 else st.columns(1)
 
-    for i, coin in enumerate(crypto_assets):
-        coin_txs = df[df['Asset'] == coin]
+    if 'show_more_assets' not in st.session_state:
+        st.session_state['show_more_assets'] = False
+    max_initial = 8
+    show_all = st.session_state.get('show_more_assets', False)
+    display_count = len(crypto_assets) if show_all else min(len(crypto_assets), max_initial)
+    assets_to_show = crypto_assets[:display_count]
 
-        bought = coin_txs[coin_txs['Type'] == 'Buy Crypto']['_Tokens'].sum()
-        earned = coin_txs[coin_txs['Type'] == 'Earn (Staking)']['_Tokens'].sum()
-        sold = coin_txs[coin_txs['Type'] == 'Sell Crypto']['_Tokens'].sum()
-        gas = coin_txs[coin_txs['Type'] == 'Gas (Fee)']['_Tokens'].sum()
+    for row_start in range(0, len(assets_to_show), 4):
+        row = assets_to_show[row_start: row_start + 4]
+        cols = st.columns(4)
+        for j, coin in enumerate(row):
+            coin_txs = df[df['Asset'] == coin]
 
-        current_tokens = bought + earned - sold - gas
+            bought = coin_txs[coin_txs['Type'] == 'Buy Crypto']['_Tokens'].sum()
+            earned = coin_txs[coin_txs['Type'] == 'Earn (Staking)']['_Tokens'].sum()
+            sold = coin_txs[coin_txs['Type'] == 'Sell Crypto']['_Tokens'].sum()
+            gas = coin_txs[coin_txs['Type'] == 'Gas (Fee)']['_Tokens'].sum()
 
-        total_spent = coin_txs[coin_txs['Type'] == 'Buy Crypto']['USD_Value'].sum()
-        dca = total_spent / (bought + earned) if (bought + earned) > 0 else 0
+            current_tokens = bought + earned - sold - gas
 
-        coin_id = resolve_symbol(coin)
-        if coin_id is None:
-            with cols[i]:
-                st.error("Missing local mapping; update coinlist-ids.json")
-            continue
+            total_spent = coin_txs[coin_txs['Type'] == 'Buy Crypto']['USD_Value'].sum()
+            dca = total_spent / (bought + earned) if (bought + earned) > 0 else 0
 
-        live_price = get_live_price(coin_id)
-        if not live_price or live_price == 0.0:
-            with cols[i]:
-                st.error("CoinGecko price lookup failed")
-            continue
+            coin_id = resolve_symbol(coin)
+            if coin_id is None:
+                with cols[j]:
+                    st.error("Missing local mapping; update coinlist-ids.json")
+                continue
 
-        coin_usd_value = current_tokens * live_price
-        total_crypto_value += coin_usd_value
+            live_price = get_live_price(coin_id)
+            if not live_price or live_price == 0.0:
+                with cols[j]:
+                    st.error("CoinGecko price lookup failed")
+                continue
 
-        with cols[i]:
-            if is_private:
-                st.metric(f"{coin} Holdings", None)
-            else:
-                st.metric(f"{coin} Holdings", secure_val(current_tokens, is_currency=False, token_symbol=coin))
-            st.write(f"**DCA:** {secure_val(dca)}")
-            st.write(f"**Live Price:** {secure_val(live_price)}")
-            st.write(f"**Current Value:** {secure_val(coin_usd_value)}")
+            coin_usd_value = current_tokens * live_price
+            total_crypto_value += coin_usd_value
+
+            with cols[j]:
+                if is_private:
+                    st.metric(f"{coin} Holdings", None)
+                else:
+                    st.metric(f"{coin} Holdings", secure_val(current_tokens, is_currency=False, token_symbol=coin))
+                st.write(f"**DCA:** {secure_val(dca)}")
+                st.write(f"**Live Price:** {secure_val(live_price)}")
+                st.write(f"**Current Value:** {secure_val(coin_usd_value)}")
 
     st.divider()
     st.subheader("Global Portfolio")

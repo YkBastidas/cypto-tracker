@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
 import requests
+import json
 from decimal import Decimal
 import os
 import time
 
 FILE_PATH = 'portfolio.csv'
+ASSET_OPTIONS = ["BTC", "ETH", "SOL", "WBETH", "PAXG", "BNSOL", "BNB", "0G", "BEAM"]
 
 def load_data():
     if not os.path.exists(FILE_PATH):
@@ -35,6 +37,33 @@ def get_live_price(coin_id="bitcoin"):
         return response[coin_id]['usd']
     except Exception:
         return 0.0
+
+def _load_curated_ids():
+    path = 'coinlist-ids.json'
+    try:
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return {k.upper(): v for k, v in data.items()}
+    except Exception:
+        return {}
+    return {}
+
+
+def _save_curated_ids(mapping: dict):
+    path = 'coinlist-ids.json'
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump({k.upper(): v for k, v in mapping.items()}, f, indent=2)
+    except Exception:
+        pass
+
+
+_CURATED_IDS = _load_curated_ids()
+
+
+def resolve_symbol(symbol: str) -> str | None:
+    return _CURATED_IDS.get(symbol.upper())
 
 st.set_page_config(page_title="Crypto & Fiat Tracker", layout="wide")
 st.title("📊 Personal Portfolio Tracker")
@@ -68,8 +97,10 @@ with st.sidebar:
         tokens = 0.0
         usd_value = st.number_input("Amount (USD)", min_value=0.0, format="%.2f", key='usd_value')
     else:
-        asset = st.text_input("Asset Ticker (e.g., BTC, ETH)", value=st.session_state.get('asset', 'BTC')).upper()
-        # token input uses session state so we can reset it after save without reruns
+        ASSET_OPTIONS = ["BTC", "ETH", "SOL", "WBETH", "PAXG", "BNSOL", "BNB", "0G", "BEAM"]
+        default_asset = st.session_state.get('asset', 'BTC')
+        default_index = ASSET_OPTIONS.index(default_asset) if default_asset in ASSET_OPTIONS else 0
+        asset = st.selectbox("Asset Ticker", options=ASSET_OPTIONS, index=default_index, key='asset')
         tokens = st.number_input("Quantity of Tokens", min_value=0.0, format="%.9f", step=0.000000001, key='tokens')
 
         if tx_type in ["Earn (Staking)", "Gas (Fee)"]:
@@ -134,8 +165,17 @@ if not df.empty:
         total_spent = coin_txs[coin_txs['Type'] == 'Buy Crypto']['USD_Value'].sum()
         dca = total_spent / (bought + earned) if (bought + earned) > 0 else 0
 
-        coin_map = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana"}
-        live_price = get_live_price(coin_map.get(coin, "bitcoin"))
+        coin_id = resolve_symbol(coin)
+        if coin_id is None:
+            with cols[i]:
+                st.error("Sorry, something's wrong with CoinGecko or the local mapping; update coinlist-ids.json")
+            continue
+
+        live_price = get_live_price(coin_id)
+        if not live_price or live_price == 0.0:
+            with cols[i]:
+                st.error("Sorry, CoinGecko price lookup failed; try again later")
+            continue
 
         coin_usd_value = current_tokens * live_price
         total_crypto_value += coin_usd_value
@@ -172,6 +212,18 @@ if not df.empty:
         df_display = df_display.sort_values('Date', ascending=False)
         df_display = df_display.drop(columns=['_Tokens'])
         st.dataframe(df_display, use_container_width=True)
+
+    with st.expander("Edit Coin Mapping"):
+        mapping = _load_curated_ids()
+        symbols = sorted(set(list(mapping.keys()) + ASSET_OPTIONS))
+        sel = st.selectbox("Symbol", options=symbols, index=symbols.index('BTC') if 'BTC' in symbols else 0, key='map_symbol')
+        current = mapping.get(sel, '')
+        new_id = st.text_input("CoinGecko id", value=current if current is not None else '', key='map_id')
+        if st.button("Save Mapping"):
+            mapping[sel] = new_id.strip() if new_id.strip() != '' else None
+            _save_curated_ids(mapping)
+            st.success("Mapping saved")
+            st.experimental_rerun()
 
 else:
     st.info("👋 Welcome! No transactions found. Use the sidebar to deposit your first Fiat funds or buy Crypto.")

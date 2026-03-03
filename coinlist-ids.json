@@ -1,0 +1,11 @@
+{
+  "BTC": "bitcoin",
+  "ETH": "ethereum",
+  "SOL": "solana",
+  "WBETH": "wrapped-beacon-eth",
+  "PAXG": "pax-gold",
+  "BNSOL": "binance-staked-sol",
+  "BNB": "binancecoin",
+  "0G": "zero-gravity",
+  "BEAM": "beam"
+}

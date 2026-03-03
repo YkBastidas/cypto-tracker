@@ -30,6 +30,7 @@ def _format_token_str(value: float) -> str:
             s = s + '0'
     return s
 
+@st.cache_data(ttl=60)
 def get_live_price(coin_id="bitcoin"):
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
@@ -49,7 +50,6 @@ def _load_curated_ids():
         return {}
     return {}
 
-
 def _save_curated_ids(mapping: dict):
     path = 'coinlist-ids.json'
     try:
@@ -58,79 +58,66 @@ def _save_curated_ids(mapping: dict):
     except Exception:
         pass
 
-
 _CURATED_IDS = _load_curated_ids()
-
 
 def resolve_symbol(symbol: str) -> str | None:
     return _CURATED_IDS.get(symbol.upper())
 
 st.set_page_config(page_title="Crypto & Fiat Tracker", layout="wide")
-st.title("📊 Personal Portfolio Tracker")
 
-if 'tx_type' not in st.session_state:
-    st.session_state['tx_type'] = 'Deposit Fiat'
-if 'asset' not in st.session_state:
-    st.session_state['asset'] = 'BTC'
-if 'tokens' not in st.session_state:
-    st.session_state['tokens'] = 0.0
-if 'usd_value' not in st.session_state:
-    st.session_state['usd_value'] = 0.0
-if st.session_state.get('should_reset'):
-    st.session_state['tx_type'] = 'Deposit Fiat'
-    st.session_state['asset'] = 'BTC'
-    st.session_state['tokens'] = 0.0
-    st.session_state['usd_value'] = 0.0
-    st.session_state.pop('should_reset', None)
+header_col1, header_col2 = st.columns([0.85, 0.15])
+with header_col1:
+    st.title("📊 Personal Portfolio Tracker")
+with header_col2:
+    st.write("") 
+    is_private = st.toggle("🙈 Hide Balances", value=False)
+
+def secure_val(val, is_currency=True, token_symbol=""):
+    if is_private:
+        return "****"
+    if is_currency:
+        return f"${val:,.2f}"
+    return f"{val:.4f} {token_symbol}".strip()
 
 with st.sidebar:
     st.header("➕ New Transaction")
 
     tx_type = st.selectbox(
         "Transaction Type",
-        ["Deposit Fiat", "Withdraw Fiat", "Buy Crypto", "Sell Crypto", "Earn (Staking)", "Gas (Fee)"],
-        key='tx_type'
+        ["Deposit Fiat", "Withdraw Fiat", "Buy Crypto", "Sell Crypto", "Earn (Staking)", "Gas (Fee)"]
     )
 
     if tx_type in ["Deposit Fiat", "Withdraw Fiat"]:
         asset = "USD"
         tokens = 0.0
-        usd_value = st.number_input("Amount (USD)", min_value=0.0, format="%.2f", key='usd_value')
+        usd_value = st.number_input("Amount (USD)", min_value=0.0, format="%.2f")
     else:
-        ASSET_OPTIONS = ["BTC", "ETH", "SOL", "WBETH", "PAXG", "BNSOL", "BNB", "0G", "BEAM"]
-        default_asset = st.session_state.get('asset', 'BTC')
-        default_index = ASSET_OPTIONS.index(default_asset) if default_asset in ASSET_OPTIONS else 0
-        asset = st.selectbox("Asset Ticker", options=ASSET_OPTIONS, index=default_index, key='asset')
-        tokens = st.number_input("Quantity of Tokens", min_value=0.0, format="%.9f", step=0.000000001, key='tokens')
+        asset = st.selectbox("Asset Ticker", options=ASSET_OPTIONS)
+        tokens = st.number_input("Quantity of Tokens", min_value=0.0, format="%.9f", step=0.000000001)
 
         if tx_type in ["Earn (Staking)", "Gas (Fee)"]:
             usd_value = 0.0
             st.info(f"Cost basis is automatically $0 for {tx_type}.")
         else:
-            usd_value = st.number_input("Total USD Value of Trade", min_value=0.0, format="%.2f", key='usd_value')
+            usd_value = st.number_input("Total USD Value of Trade", min_value=0.0, format="%.2f")
 
     if st.button("Save Transaction"):
-        # read current widget values from session_state where appropriate
-        tokens_val = st.session_state.get('tokens', tokens) if 'tokens' in st.session_state else tokens
-        asset_val = st.session_state.get('asset', asset) if 'asset' in st.session_state else asset
-        usd_val = st.session_state.get('usd_value', usd_value) if 'usd_value' in st.session_state else usd_value
-
-        tokens_str = _format_token_str(tokens_val) if isinstance(tokens_val, (int, float)) else str(tokens_val)
+        tokens_str = _format_token_str(tokens) if isinstance(tokens, (int, float)) else str(tokens)
         new_tx = pd.DataFrame({
             'Date': [pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")],
             'Type': [tx_type],
-            'Asset': [asset_val],
+            'Asset': [asset],
             'Tokens': [tokens_str],
-            'USD_Value': [usd_val]
+            'USD_Value': [usd_value]
         })
 
         df = load_data()
         df = pd.concat([df, new_tx], ignore_index=True)
         save_data(df)
         st.session_state['should_reset'] = True
-        placeholder = st.empty()
-        placeholder.success("Transaction saved successfully!")
-        time.sleep(.5)
+        st.empty()
+        st.success("Transaction saved successfully!")
+        time.sleep(0.5)
         st.rerun()
 
 df = load_data()
@@ -145,11 +132,8 @@ if not df.empty:
     fiat_balance = total_deposits - total_withdrawals - crypto_bought + crypto_sold
 
     st.subheader("Investments & DCA")
-
     crypto_assets = df[(df['Asset'] != 'USD')]['Asset'].unique()
-
     total_crypto_value = 0.0
-
     cols = st.columns(len(crypto_assets)) if len(crypto_assets) > 0 else st.columns(1)
 
     for i, coin in enumerate(crypto_assets):
@@ -168,23 +152,26 @@ if not df.empty:
         coin_id = resolve_symbol(coin)
         if coin_id is None:
             with cols[i]:
-                st.error("Sorry, something's wrong with CoinGecko or the local mapping; update coinlist-ids.json")
+                st.error("Missing local mapping; update coinlist-ids.json")
             continue
 
         live_price = get_live_price(coin_id)
         if not live_price or live_price == 0.0:
             with cols[i]:
-                st.error("Sorry, CoinGecko price lookup failed; try again later")
+                st.error("CoinGecko price lookup failed")
             continue
 
         coin_usd_value = current_tokens * live_price
         total_crypto_value += coin_usd_value
 
         with cols[i]:
-            st.metric(f"{coin} Holdings", f"{current_tokens:.4f} {coin}")
-            st.write(f"**DCA:** ${dca:,.2f}")
-            st.write(f"**Live Price:** ${live_price:,.2f}")
-            st.write(f"**Current Value:** ${coin_usd_value:,.2f}")
+            if is_private:
+                st.metric(f"{coin} Holdings", None)
+            else:
+                st.metric(f"{coin} Holdings", secure_val(current_tokens, is_currency=False, token_symbol=coin))
+            st.write(f"**DCA:** {secure_val(dca)}")
+            st.write(f"**Live Price:** {secure_val(live_price)}")
+            st.write(f"**Current Value:** {secure_val(coin_usd_value)}")
 
     st.divider()
     st.subheader("Global Portfolio")
@@ -194,24 +181,38 @@ if not df.empty:
     pnl = current_portfolio - net_fiat_invested
 
     pc1, pc2, pc3, pc4 = st.columns(4)
-    pc1.metric("Fiat Balance (Idle Cash)", f"${fiat_balance:,.2f}")
-    pc2.metric("Crypto Value", f"${total_crypto_value:,.2f}")
-    pc3.metric("Total Portfolio Value", f"${current_portfolio:,.2f}")
-    pc4.metric("Total P&L", f"${pnl:,.2f}", delta_color="normal")
+    if is_private:
+        pc1.metric("Fiat Balance (Idle Cash)", None)
+        pc2.metric("Crypto Value", None)
+        pc3.metric("Total Portfolio Value", None)
+        pc4.metric("Total P&L", None, delta_color="normal")
+    else:
+        pc1.metric("Fiat Balance (Idle Cash)", f"${fiat_balance:,.2f}")
+        pc2.metric("Crypto Value", f"${total_crypto_value:,.2f}")
+        pc3.metric("Total Portfolio Value", f"${current_portfolio:,.2f}")
+        pc4.metric("Total P&L", f"${pnl:,.2f}", delta_color="normal")
 
-    st.write("---")
+    st.divider()
     goal_target = 20000.00
     progress_fraction = min(current_portfolio / goal_target, 1.0)
-    st.write(f"**Apartment Goal Progress: ${current_portfolio:,.2f} / ${goal_target:,.0f}**")
-    st.progress(progress_fraction)
+    if is_private:
+        st.write(f"**Apartment Goal Progress: *** / ${goal_target:,.0f}**")
+    else:
+        st.write(f"**Apartment Goal Progress: \${current_portfolio:,.2f} / ${goal_target:,.2f}**")
+        st.progress(progress_fraction)
 
-    st.write("---")
+    st.divider()
     with st.expander("View Raw Transaction History"):
         df_display = df.copy()
         df_display['Date'] = pd.to_datetime(df_display['Date'], format="%Y-%m-%d %H:%M:%S", errors='coerce')
         df_display = df_display.sort_values('Date', ascending=False)
         df_display = df_display.drop(columns=['_Tokens'])
-        st.dataframe(df_display, use_container_width=True)
+        
+        if is_private:
+            df_display['Tokens'] = "***"
+            df_display['USD_Value'] = "***"
+            
+        st.dataframe(df_display, width='stretch')
 
     with st.expander("Edit Coin Mapping"):
         mapping = _load_curated_ids()
@@ -223,7 +224,7 @@ if not df.empty:
             mapping[sel] = new_id.strip() if new_id.strip() != '' else None
             _save_curated_ids(mapping)
             st.success("Mapping saved")
-            st.experimental_rerun()
+            st.rerun()
 
 else:
     st.info("👋 Welcome! No transactions found. Use the sidebar to deposit your first Fiat funds or buy Crypto.")

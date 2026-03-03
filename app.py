@@ -33,7 +33,7 @@ def _format_token_str(value: float) -> str:
             s = s + '0'
     return s
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=1800)
 def get_live_price(coin_id="bitcoin"):
     try:
         api_key = os.getenv('API_KEY')
@@ -68,6 +68,25 @@ def resolve_symbol(symbol: str) -> str | None:
     return _CURATED_IDS.get(symbol.upper())
 
 st.set_page_config(page_title="Crypto & Fiat Tracker", layout="wide")
+st.markdown('''
+<style>
+h3 { margin-bottom: 0.5rem !important; }
+.coin-card { padding: 16px; border-radius: 12px; background: linear-gradient(145deg, #1e222d, #131722); border: 1px solid rgba(255, 255, 255, 0.05); border-left: 4px solid #3b82f6; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3); color: #e2e8f0; transition: transform 0.2s ease; margin-bottom: 1rem; }
+.coin-card:hover { transform: translateY(-2px); border-left: 4px solid #00ff9d; /* Accent changes to neon green on hover */ box-shadow: 0 12px 20px rgba(0, 0, 0, 0.4); }
+.coin-title { font-size: x-large; margin-bottom:6px; font-weight:700; }
+.coin-holdings { margin-bottom:6px; color:var(--text-color); }
+.coin-stats { display:flex; flex-direction:column; gap:4px; }
+.st-emotion-cache-tn0cau { gap: 0.5rem !important; }
+</style>
+''', unsafe_allow_html=True)
+st.markdown("""
+    <style>
+    p {
+        margin-bottom: 0.2rem !important;
+        font-size: 1rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 header_col1, header_col2 = st.columns([0.85, 0.15])
 with header_col1:
@@ -181,12 +200,29 @@ if not df.empty:
 
             with cols[j]:
                 if is_private:
-                    st.metric(f"{coin} Holdings", None)
+                    coin_display = "****"
                 else:
-                    st.metric(f"{coin} Holdings", secure_val(current_tokens, is_currency=False, token_symbol=coin))
-                st.write(f"**DCA:** {secure_val(dca)}")
-                st.write(f"**Live Price:** {secure_val(live_price)}")
-                st.write(f"**Current Value:** {secure_val(coin_usd_value)}")
+                    coin_display = coin
+
+                holdings_html = secure_val(current_tokens, is_currency=False, token_symbol=coin) if not is_private else '****'
+                dca_html = secure_val(dca)
+                live_html = secure_val(live_price)
+                current_html = secure_val(coin_usd_value)
+
+                card_html = f"""
+                <div class="coin-card">
+                    <div class="coin-title">{coin_display}</div>
+                    <div class="coin-holdings">{holdings_html}</div>
+                    <div class="coin-stats">
+                        <div><strong>DCA:</strong> {dca_html}</div>
+                        <div><strong>Live Price:</strong> {live_html}</div>
+                        <div><strong>Current Value:</strong> {current_html}</div>
+                    </div>
+                </div>
+                """
+                st.markdown(card_html, unsafe_allow_html=True)
+        # end of row
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
     st.divider()
     st.subheader("Global Portfolio")

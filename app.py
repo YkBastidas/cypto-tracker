@@ -70,23 +70,23 @@ def resolve_symbol(symbol: str) -> str | None:
 st.set_page_config(page_title="Crypto & Fiat Tracker", layout="wide")
 st.markdown('''
 <style>
-h3 { margin-bottom: 0.5rem !important; }
-.coin-card { padding: 16px; border-radius: 12px; background: linear-gradient(145deg, #1e222d, #131722); border: 1px solid rgba(255, 255, 255, 0.05); border-left: 4px solid #3b82f6; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3); color: #e2e8f0; transition: transform 0.2s ease; margin-bottom: 1rem; }
-.coin-card:hover { transform: translateY(-2px); border-left: 4px solid #00ff9d; /* Accent changes to neon green on hover */ box-shadow: 0 12px 20px rgba(0, 0, 0, 0.4); }
-.coin-title { font-size: x-large; margin-bottom:6px; font-weight:700; }
-.coin-holdings { margin-bottom:6px; color:var(--text-color); }
-.coin-stats { display:flex; flex-direction:column; gap:4px; }
-.st-emotion-cache-tn0cau { gap: 0.5rem !important; }
+    h3 { margin-bottom: 0.5rem !important; }
+    p { margin-bottom: 0.2rem !important; font-size: 1rem; }
+    .coin-card { padding: 16px; border-radius: 12px; background: linear-gradient(145deg, #1e222d, #131722); border: 1px solid rgba(255, 255, 255, 0.05); border-left: 4px solid #3b82f6; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3); color: #e2e8f0; transition: transform 0.2s ease; margin-bottom: 1rem; }
+    .coin-card:hover { transform: translateY(-2px); border-left: 4px solid #00ff9d; /* Accent changes to neon green on hover */ box-shadow: 0 12px 20px rgba(0, 0, 0, 0.4); }
+    .coin-title { font-size: x-large; margin-bottom:6px; font-weight:700; }
+    .coin-holdings { margin-bottom:6px; color:var(--text-color); }
+    .coin-stats { display:flex; flex-direction:column; gap:4px; }
+    .st-emotion-cache-tn0cau { gap: 0.5rem !important; }
+    .trade-btn{display:inline-block;padding:8px 16px;border-radius:8px;font-weight:600;font-size:.9rem;text-decoration:none!important;text-align:center;transition:.2s;cursor:pointer}
+    .trade-btn.buy{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.4);color:#ef4444}
+    .trade-btn.buy:hover{background:rgba(239,68,68,.2);border-color:#ef4444;box-shadow:0 0 12px rgba(239,68,68,.4);transform:translateY(-2px)}
+    .trade-btn.sell{background:rgba(0,255,157,.1);border:1px solid rgba(0,255,157,.4);color:#00ff9d}
+    .trade-btn.sell:hover{background:rgba(0,255,157,.2);border-color:#00ff9d;box-shadow:0 0 12px rgba(0,255,157,.3);transform:translateY(-2px)}
+    .trade-btn.watch{background:rgba(243,186,47,.1);border:1px solid rgba(243,186,47,.4);color:#f3ba2f}
+    .trade-btn.watch:hover{background:rgba(243,186,47,.2);border-color:#f3ba2f;box-shadow:0 0 12px rgba(243,186,47,.4);transform:translateY(-2px)}
 </style>
 ''', unsafe_allow_html=True)
-st.markdown("""
-    <style>
-    p {
-        margin-bottom: 0.2rem !important;
-        font-size: 1rem;
-    }
-    </style>
-""", unsafe_allow_html=True)
 
 header_col1, header_col2 = st.columns([0.85, 0.15])
 with header_col1:
@@ -183,6 +183,9 @@ if not df.empty:
             total_spent = coin_txs[coin_txs['Type'] == 'Buy Crypto']['USD_Value'].sum()
             dca = total_spent / (bought + earned) if (bought + earned) > 0 else 0
 
+            sold_usd = coin_txs[coin_txs['Type'] == 'Sell Crypto']['USD_Value'].sum()
+            invested_usd = total_spent - sold_usd
+
             coin_id = resolve_symbol(coin)
             if coin_id is None:
                 with cols[j]:
@@ -209,19 +212,47 @@ if not df.empty:
                 live_html = secure_val(live_price)
                 current_html = secure_val(coin_usd_value)
 
+                invested_html = secure_val(invested_usd)
+                pnl_value = coin_usd_value - invested_usd
+                pnl_html = secure_val(pnl_value)
+                pct = (pnl_value / invested_usd) if invested_usd != 0 else 0
+                pct_html = f"{pct:+.2%}"
+
+                if pct >= 0.20:
+                    action_class = 'sell'
+                    action_text = 'SELL'
+                elif pct <= -0.20:
+                    action_class = 'buy'
+                    action_text = 'BUY'
+                else:
+                    action_class = 'watch'
+                    action_text = 'See in Binance'
+
+                text_color = "crimson" if pct < 0 else "greenyellow"
+
+                trade_symbol = coin_display
+                if str(coin).upper() == 'BEAM':
+                    trade_symbol = 'BEAMX'
+
+                trade_url = f"https://www.binance.com/es/trade/{trade_symbol}_USDT?type=spot"
+
                 card_html = f"""
                 <div class="coin-card">
                     <div class="coin-title">{coin_display}</div>
                     <div class="coin-holdings">{holdings_html}</div>
+                    <div><strong>Invested:</strong> {invested_html}</div>
                     <div class="coin-stats">
                         <div><strong>DCA:</strong> {dca_html}</div>
                         <div><strong>Live Price:</strong> {live_html}</div>
                         <div><strong>Current Value:</strong> {current_html}</div>
+                        <div><strong>P&L:</strong> {pnl_html} <small style="color: {text_color};">({pct_html})</small></div>
+                    </div>
+                    <div style="margin-top:8px">
+                        <a class="trade-btn {action_class}" href="{trade_url}" target="_blank" rel="noopener">{action_text}</a>
                     </div>
                 </div>
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
-        # end of row
         st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
     st.divider()

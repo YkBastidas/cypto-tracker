@@ -73,6 +73,31 @@ def _save_curated_ids(mapping: dict):
 
 _CURATED_IDS = _load_curated_ids()
 
+def _load_targets():
+    path = 'coin-targets.json'
+    try:
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception:
+        return {}
+    return {}
+
+def _save_targets(mapping: dict):
+    path = 'coin-targets.json'
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(mapping, f, indent=2)
+    except Exception:
+        pass
+
+def _on_target_change(coin_ticker):
+    targets = _load_targets()
+    buy_val = st.session_state.get(f"target_buy_{coin_ticker}", 20.0)
+    sell_val = st.session_state.get(f"target_sell_{coin_ticker}", 20.0)
+    targets[coin_ticker] = {"buy": buy_val, "sell": sell_val}
+    _save_targets(targets)
+
 def resolve_symbol(symbol: str) -> str | None:
     return _CURATED_IDS.get(symbol.upper())
 
@@ -264,13 +289,16 @@ if not df.empty:
 
                 trade_url = f"https://www.binance.com/es/trade/{trade_symbol}_USDT?type=spot"
 
+                targets_data = _load_targets()
+                saved_targets = targets_data.get(coin, {"buy": 20.0, "sell": 20.0})
+
                 target_buy_key = f"target_buy_{coin}"
                 target_sell_key = f"target_sell_{coin}"
                 
                 if target_buy_key not in st.session_state:
-                    st.session_state[target_buy_key] = 20.0
+                    st.session_state[target_buy_key] = float(saved_targets.get("buy", 20.0))
                 if target_sell_key not in st.session_state:
-                    st.session_state[target_sell_key] = 20.0
+                    st.session_state[target_sell_key] = float(saved_targets.get("sell", 20.0))
                 
                 target_buy_pct = st.session_state[target_buy_key]
                 target_sell_pct = st.session_state[target_sell_key]
@@ -306,9 +334,23 @@ if not df.empty:
                 with st.expander(f"🎯 Set {coin_display} Targets"):
                     t_col1, t_col2 = st.columns(2)
                     with t_col1:
-                        st.number_input("Buy Drop %", min_value=0.0, step=1.0, key=target_buy_key)
+                        st.number_input(
+                            "Buy Drop %", 
+                            min_value=0.0, 
+                            step=1.0, 
+                            key=target_buy_key,
+                            on_change=_on_target_change,
+                            args=(coin,) # Passes the coin ticker to our auto-save function
+                        )
                     with t_col2:
-                        st.number_input("Sell Pump %", min_value=0.0, step=1.0, key=target_sell_key)
+                        st.number_input(
+                            "Sell Pump %", 
+                            min_value=0.0, 
+                            step=1.0, 
+                            key=target_sell_key,
+                            on_change=_on_target_change,
+                            args=(coin,) # Passes the coin ticker to our auto-save function
+                        )
                         
         st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 

@@ -13,3 +13,4 @@ __pycache__/
 # Loacl DB and documents
 /local-info
 portfolio.csv
+coin-targets.json

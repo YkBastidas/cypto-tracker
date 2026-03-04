@@ -236,6 +236,21 @@ if not df.empty:
 
                 trade_url = f"https://www.binance.com/es/trade/{trade_symbol}_USDT?type=spot"
 
+                target_key = f"target_{coin}"
+                if target_key not in st.session_state:
+                    st.session_state[target_key] = 20.0
+                
+                target_pct = st.session_state[target_key]
+
+                if pnl_value >= 0:
+                    target_price = dca * (1 + (target_pct / 100))
+                    target_label = f"Target Sell (+{target_pct:g}%):"
+                else:
+                    target_price = dca * (1 - (target_pct / 100))
+                    target_label = f"Target Buy (-{target_pct:g}%):"
+                
+                target_price_html = secure_val(target_price)
+
                 card_html = f"""
                 <div class="coin-card">
                     <div class="coin-title">{coin_display}</div>
@@ -246,13 +261,26 @@ if not df.empty:
                         <div><strong>Live Price:</strong> {live_html}</div>
                         <div><strong>Current Value:</strong> {current_html}</div>
                         <div><strong>P&L:</strong> {pnl_html} <small style="color: {text_color};">({pct_html})</small></div>
+                        <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, 0.05);">
+                            <strong>{target_label}</strong> <span style="color: #3b82f6;">{target_price_html}</span>
+                        </div>
                     </div>
-                    <div style="margin-top:8px">
+                    <div style="margin-top:12px">
                         <a class="trade-btn {action_class}" href="{trade_url}" target="_blank" rel="noopener">{action_text}</a>
                     </div>
                 </div>
                 """
+                
                 st.markdown(card_html, unsafe_allow_html=True)
+                
+                with st.expander(f"🎯 Set {coin_display} Target %"):
+                    st.number_input(
+                        "Percentage", 
+                        min_value=0.0, 
+                        step=1.0, 
+                        key=target_key,
+                        label_visibility="collapsed"
+                    )
         st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
     st.divider()

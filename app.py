@@ -132,8 +132,15 @@ with header_col2:
 def secure_val(val, is_currency=True, token_symbol=""):
     if is_private:
         return "****"
+    
     if is_currency:
-        return f"${val:,.2f}"
+        # Check the absolute value of 'val' to ensure it works for negative P&L too
+        # We also check > 0 so that exactly $0.00 doesn't format as $0.0000
+        if 0 < abs(val) < 0.01:
+            return f"${val:,.4f}"  # Shows 4 decimals for tiny fractions
+        else:
+            return f"${val:,.2f}"  # Standard 2 decimals for normal amounts
+            
     return f"{val:.4f} {token_symbol}".strip()
 
 if 'input_key' not in st.session_state:
@@ -271,18 +278,6 @@ if not df.empty:
                 pct = (pnl_value / invested_usd) if invested_usd != 0 else 0
                 pct_html = f"{pct:+.2%}"
 
-                if pct >= 0.20:
-                    action_class = 'sell'
-                    action_text = 'SELL'
-                elif pct <= -0.20:
-                    action_class = 'buy'
-                    action_text = 'BUY'
-                else:
-                    action_class = 'watch'
-                    action_text = 'See in Binance'
-
-                text_color = "crimson" if pct < 0 else "greenyellow"
-
                 trade_symbol = coin_display
                 if str(coin).upper() == 'BEAM':
                     trade_symbol = 'BEAMX'
@@ -308,6 +303,18 @@ if not df.empty:
                 
                 target_buy_html = secure_val(target_buy_price)
                 target_sell_html = secure_val(target_sell_price)
+
+                if live_price >= target_sell_price:
+                    action_class = 'sell'
+                    action_text = 'SELL'
+                elif live_price <= target_buy_price:
+                    action_class = 'buy'
+                    action_text = 'BUY'
+                else:
+                    action_class = 'watch'
+                    action_text = 'See in Binance'
+
+                text_color = "crimson" if pct < 0 else "greenyellow"
 
                 card_html = f"""
                 <div class="coin-card">

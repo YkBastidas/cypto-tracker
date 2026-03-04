@@ -34,14 +34,23 @@ def _format_token_str(value: float) -> str:
     return s
 
 @st.cache_data(ttl=1800)
-def get_live_price(coin_id="bitcoin"):
+def get_all_live_prices(coin_ids_list):
+    if not coin_ids_list:
+        return {}
     try:
+        # Join all coins into one string (e.g., "bitcoin,ethereum,solana")
+        ids_str = ",".join(coin_ids_list)
         api_key = os.getenv('API_KEY')
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd&x_cg_demo_api_key={api_key}"
+        
+        if api_key:
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids_str}&vs_currencies=usd&x_cg_demo_api_key={api_key}"
+        else:
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids_str}&vs_currencies=usd"
+            
         response = requests.get(url).json()
-        return response[coin_id]['usd']
+        return response
     except Exception:
-        return 0.0
+        return {}
 
 def _load_curated_ids():
     path = 'coinlist-ids.json'
@@ -158,7 +167,27 @@ if not df.empty:
 
     st.subheader("Investments & DCA")
     crypto_assets = list(df[(df['Asset'] != 'USD')]['Asset'].unique())
+
+    mapped_ids = []
+    for coin in crypto_assets:
+        cid = resolve_symbol(coin)
+        if cid:
+            mapped_ids.append(cid)
+            
+    live_prices_data = get_all_live_prices(mapped_ids)
+
     total_crypto_value = 0.0
+    for coin in crypto_assets:
+        coin_txs = df[df['Asset'] == coin]
+        bought = coin_txs[coin_txs['Type'] == 'Buy Crypto']['_Tokens'].sum()
+        earned = coin_txs[coin_txs['Type'] == 'Earn (Staking)']['_Tokens'].sum()
+        sold = coin_txs[coin_txs['Type'] == 'Sell Crypto']['_Tokens'].sum()
+        gas = coin_txs[coin_txs['Type'] == 'Gas (Fee)']['_Tokens'].sum()
+        current_tokens = bought + earned - sold - gas
+        
+        cid = resolve_symbol(coin)
+        price = live_prices_data.get(cid, {}).get('usd', 0.0) if cid else 0.0
+        total_crypto_value += (current_tokens * price)
 
     if 'show_more_assets' not in st.session_state:
         st.session_state['show_more_assets'] = False
@@ -189,17 +218,16 @@ if not df.empty:
             coin_id = resolve_symbol(coin)
             if coin_id is None:
                 with cols[j]:
-                    st.error("Missing local mapping; update coinlist-ids.json")
+                    st.error(f"Missing mapping for {coin}")
                 continue
 
-            live_price = get_live_price(coin_id)
+            live_price = live_prices_data.get(coin_id, {}).get('usd', 0.0)
             if not live_price or live_price == 0.0:
                 with cols[j]:
-                    st.error("CoinGecko price lookup failed")
+                    st.error(f"Price lookup failed for {coin}")
                 continue
 
             coin_usd_value = current_tokens * live_price
-            total_crypto_value += coin_usd_value
 
             with cols[j]:
                 if is_private:
@@ -236,51 +264,52 @@ if not df.empty:
 
                 trade_url = f"https://www.binance.com/es/trade/{trade_symbol}_USDT?type=spot"
 
-                target_key = f"target_{coin}"
-                if target_key not in st.session_state:
-                    st.session_state[target_key] = 20.0
+                target_buy_key = f"target_buy_{coin}"
+                target_sell_key = f"target_sell_{coin}"
                 
-                target_pct = st.session_state[target_key]
+                if target_buy_key not in st.session_state:
+                    st.session_state[target_buy_key] = 20.0
+                if target_sell_key not in st.session_state:
+                    st.session_state[target_sell_key] = 20.0
+                
+                target_buy_pct = st.session_state[target_buy_key]
+                target_sell_pct = st.session_state[target_sell_key]
 
-                if pnl_value >= 0:
-                    target_price = dca * (1 + (target_pct / 100))
-                    target_label = f"Target Sell (+{target_pct:g}%):"
-                else:
-                    target_price = dca * (1 - (target_pct / 100))
-                    target_label = f"Target Buy (-{target_pct:g}%):"
+                target_buy_price = dca * (1 - (target_buy_pct / 100))
+                target_sell_price = dca * (1 + (target_sell_pct / 100))
                 
-                target_price_html = secure_val(target_price)
+                target_buy_html = secure_val(target_buy_price)
+                target_sell_html = secure_val(target_sell_price)
 
                 card_html = f"""
                 <div class="coin-card">
-                    <div class="coin-title">{coin_display}</div>
+                    <div class="coin-title" style="font-weight:bold; font-size:1.2rem; margin-bottom:8px;">{coin_display}</div>
                     <div class="coin-holdings">{holdings_html}</div>
                     <div><strong>Invested:</strong> {invested_html}</div>
-                    <div class="coin-stats">
+                    <div class="coin-stats" style="margin-top:8px;">
                         <div><strong>DCA:</strong> {dca_html}</div>
                         <div><strong>Live Price:</strong> {live_html}</div>
                         <div><strong>Current Value:</strong> {current_html}</div>
                         <div><strong>P&L:</strong> {pnl_html} <small style="color: {text_color};">({pct_html})</small></div>
-                        <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, 0.05);">
-                            <strong>{target_label}</strong> <span style="color: #3b82f6;">{target_price_html}</span>
+                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                            <div><strong>Target Buy (-{target_buy_pct:g}%):</strong> <span style="color: #ef4444;">{target_buy_html}</span></div>
+                            <div><strong>Target Sell (+{target_sell_pct:g}%):</strong> <span style="color: #00ff9d;">{target_sell_html}</span></div>
                         </div>
                     </div>
-                    <div style="margin-top:12px">
+                    <div style="margin-top:16px;">
                         <a class="trade-btn {action_class}" href="{trade_url}" target="_blank" rel="noopener">{action_text}</a>
                     </div>
                 </div>
                 """
-                
                 st.markdown(card_html, unsafe_allow_html=True)
                 
-                with st.expander(f"🎯 Set {coin_display} Target %"):
-                    st.number_input(
-                        "Percentage", 
-                        min_value=0.0, 
-                        step=1.0, 
-                        key=target_key,
-                        label_visibility="collapsed"
-                    )
+                with st.expander(f"🎯 Set {coin_display} Targets"):
+                    t_col1, t_col2 = st.columns(2)
+                    with t_col1:
+                        st.number_input("Buy Drop %", min_value=0.0, step=1.0, key=target_buy_key)
+                    with t_col2:
+                        st.number_input("Sell Pump %", min_value=0.0, step=1.0, key=target_sell_key)
+                        
         st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
     st.divider()
